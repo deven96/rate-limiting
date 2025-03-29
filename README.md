@@ -4,7 +4,7 @@ We spoke a bit on Javascripters with some bright individuals about a practical p
 that needed rate limiting and so this is a followup disguised in the form of a talk session about practical rate limiting
 
 The goal of this is not to be algorithmically precise to a tee, but to show real-world approaches 
-to limiting request/traffic. This I broadly divide into `Buckets vs Windows` as they each have different
+to limiting request/traffic. This I broadly divide into `Windows vs Buckets` as they each have different
 appeals
 
 ## Introduction
@@ -24,6 +24,87 @@ for it, so this becomes another lever to pull during contract negotiations
 ## Dependencies
 
 Rust(cargo) simply because I suck the least in Rust
+
+
+## Windows
+
+### Fixed Window
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant RateLimiter
+    participant WindowResetThread
+
+    Note right of RateLimiter: Window size = 10s, Limit = 5 requests
+
+    Client->>RateLimiter: Request 1
+    RateLimiter->>Client: ✅ Allowed (Count: 1)
+
+    Client->>RateLimiter: Request 2
+    RateLimiter->>Client: ✅ Allowed (Count: 2)
+
+    Client->>RateLimiter: Request 3
+    RateLimiter->>Client: ✅ Allowed (Count: 3)
+
+    Client->>RateLimiter: Request 4
+    RateLimiter->>Client: ✅ Allowed (Count: 4)
+
+    Client->>RateLimiter: Request 5
+    RateLimiter->>Client: ✅ Allowed (Count: 5)
+
+    Client->>RateLimiter: Request 6
+    RateLimiter->>Client: ❌ Rate Limited (Limit Reached)
+
+    Note over WindowResetThread: Waits for 10s...
+    WindowResetThread->>RateLimiter: Reset count to 0
+
+    Client->>RateLimiter: Request 7 (New Window)
+    RateLimiter->>Client: ✅ Allowed (Count: 1)
+```
+
+This divides time into fixed length intervals with request counters. 
+Has issues with burstiness and is often not fair for distributed request
+patterns
+
+### Sliding Window
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant RateLimiter
+    participant WindowCleanupThread
+
+    Note right of RateLimiter: Window size = 10s, Limit = 5 requests
+
+    Client->>RateLimiter: Request 1
+    RateLimiter->>Client: ✅ Allowed (Count: 1)
+
+    Client->>RateLimiter: Request 2
+    RateLimiter->>Client: ✅ Allowed (Count: 2)
+
+    Client->>RateLimiter: Request 3
+    RateLimiter->>Client: ✅ Allowed (Count: 3)
+
+    Client->>RateLimiter: Request 4
+    RateLimiter->>Client: ✅ Allowed (Count: 4)
+
+    Client->>RateLimiter: Request 5
+    RateLimiter->>Client: ✅ Allowed (Count: 5)
+
+    Client->>RateLimiter: Request 6
+    RateLimiter->>Client: ❌ Rate Limited (Limit Reached)
+
+    Note over WindowCleanupThread: Cleanup running periodically...
+    WindowCleanupThread->>RateLimiter: Remove expired timestamps
+
+    Client->>RateLimiter: Request 7 (New Window)
+    RateLimiter->>Client: ✅ Allowed (Count: 1)
+```
+
+As the name implies, the window is sliding and what that means is that 
+doesn't reset at fixed intervals but maintains a rolling count over time
+It is more resistant to burstiness
 
 
 ## Buckets
@@ -59,15 +140,6 @@ graph TD;
 
 Works best to smooth request traffic. Generally simpler and is much more suited to traffic 
 and congestion control than it is rate limiting
-
-
-## Windows
-
-### Fixed Window
-
-
-### Sliding Window
-
 
 ## Weighted Requests
 
